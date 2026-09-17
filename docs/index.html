@@ -1,4 +1,114 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#123d2a"><meta name="description" content="Find, learn about, and responsibly document regional edible plants and fungi."><title>Forage Finder</title><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="preconnect" href="https://unpkg.com"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""><link rel="stylesheet" href="styles.css"></head>
-<body><header class="topbar"><a class="brand" href="#map-view" aria-label="Forage Finder home"><span class="brand-mark">⌁</span><span>Forage Finder</span></a><button class="icon-button" id="installButton" hidden>Install app</button></header>
-<main><section id="map-view" class="workspace" aria-labelledby="mapTitle"><div class="controls-panel"><div class="heading-row"><div><p class="eyebrow" id="regionLabel">FORAGE RADAR</p><h1 id="mapTitle">What grows near you?</h1></div><button class="locate-button" id="locateButton">◎ My location</button></div><label class="search-wrap"><span class="sr-only">Search region</span><span>⌖</span><input id="regionInput" type="search" placeholder="City, Piedmont, state, Mid-Atlantic…"></label><label class="search-wrap"><span class="sr-only">Search species</span><span>⌕</span><input id="searchInput" type="search" placeholder="Search mulberry, pawpaw, nettle…" autocomplete="off"></label><div class="filter-row"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="fruit">Fruit</button><button class="filter" data-filter="herb">Herbs</button><button class="filter" data-filter="fungus">Fungi</button><button class="filter" data-filter="tree">Trees</button></div><div class="results-meta"><strong id="resultCount">0 finds</strong><span id="radarStatus">Confidence combines source, location, recency & corroboration</span></div><div id="speciesList" class="species-list" aria-live="polite"></div></div><div class="map-shell"><div id="map" aria-label="Map of regional forage observations"></div><div class="map-message" id="mapMessage" role="status">Loading map…</div><button class="add-find" id="addFindButton">＋ Log a find</button><aside class="safety-card"><span>!</span><p><strong>Never eat from an app match alone.</strong> Confirm with multiple field marks and a qualified local expert. Exact private/obscured source locations are never reconstructed.</p></aside></div></section><dialog id="detailDialog" class="detail-dialog"><button class="dialog-close" data-close>×</button><div id="detailContent"></div></dialog><dialog id="logDialog" class="log-dialog"><form id="logForm" method="dialog"><div class="dialog-heading"><p class="eyebrow">FIELD NOTE</p><h2>Log a find</h2></div><button class="dialog-close" value="cancel">×</button><label>Species<select id="logSpecies" required></select></label><label>What did you notice?<textarea id="logNotes" rows="3" maxlength="240" placeholder="Habitat, color, nearby trees, field marks…"></textarea></label><label class="check"><input id="privateLocation" type="checkbox" checked><span>Keep exact location private on this device</span></label><p class="form-note">Private coordinates remain local and are never used to infer hidden public locations.</p><div class="form-actions"><button value="cancel" class="secondary">Cancel</button><button id="saveFind" value="default" class="primary">Save field note</button></div></form></dialog></main><nav class="bottom-nav"><a class="active" href="#map-view"><span>⌖</span>Radar</a><button id="identifyButton"><span>◉</span>Identify</button><button id="savedButton"><span>◇</span>My finds</button><button id="guideButton"><span>≡</span>Safety</button></nav><input id="photoInput" type="file" accept="image/*" capture="environment" hidden><div id="toast" class="toast" role="status" aria-live="polite"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script><script src="sighting-intelligence.js"></script><script src="app.js" defer></script><script src="radar-ui.js" defer></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#123d2a">
+  <meta name="description" content="Find, learn about, and responsibly document regional edible plants and fungi.">
+  <title>Forage Finder</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#map-view" aria-label="Forage Finder home">
+      <span class="brand-mark" aria-hidden="true">⌁</span>
+      <span>Forage Finder</span>
+    </a>
+    <button class="icon-button" id="installButton" hidden>Install app</button>
+  </header>
+
+  <main>
+    <section id="map-view" class="workspace" aria-labelledby="mapTitle">
+      <div class="controls-panel">
+        <div class="heading-row">
+          <div>
+            <p class="eyebrow" id="regionEyebrow">RICHMOND REGION</p>
+            <h1 id="mapTitle">What grows near you?</h1>
+          </div>
+          <button class="locate-button" id="locateButton" type="button">◎ My location</button>
+        </div>
+
+        <label class="region-search-wrap">
+          <span class="field-label">Search region</span>
+          <span class="region-input-row"><span aria-hidden="true">⌖</span><input id="regionInput" list="regionOptions" value="Richmond, Virginia" placeholder="City, state, Piedmont, Mid-Atlantic…"><button id="applyRegion" type="button">Apply</button></span>
+          <datalist id="regionOptions"></datalist>
+          <span class="region-scope" id="regionScope">Citywide · Richmond city and immediate urban habitat</span>
+        </label>
+
+        <label class="search-wrap">
+          <span class="sr-only">Search species</span>
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" placeholder="Search mulberry, pawpaw, nettle…" autocomplete="off">
+        </label>
+
+        <div class="filter-row" aria-label="Filter by type">
+          <button class="filter active" data-filter="all">All</button>
+          <button class="filter" data-filter="fruit">Fruit</button>
+          <button class="filter" data-filter="herb">Herbs</button>
+          <button class="filter" data-filter="fungus">Fungi</button>
+          <button class="filter" data-filter="tree">Trees</button>
+        </div>
+
+        <div class="results-meta"><strong id="resultCount">0 finds</strong><button class="source-link" id="sourceButton">Sources &amp; coverage</button></div>
+        <p class="radar-status" id="radarStatus">Signals ranked by source, identity, location, recency and corroboration</p>
+        <div id="speciesList" class="species-list" aria-live="polite"></div>
+      </div>
+
+      <div class="map-shell">
+        <div id="map" aria-label="Map of regional forage observations"></div>
+        <div class="map-message" id="mapMessage" role="status">Loading map…</div>
+        <button class="add-find" id="addFindButton" type="button">＋ Log a find</button>
+        <aside class="safety-card">
+          <span aria-hidden="true">!</span>
+          <p><strong>Never eat from an app match alone.</strong> Confirm with multiple field marks and a qualified local expert. Avoid polluted land and get permission.</p>
+        </aside>
+      </div>
+    </section>
+
+    <dialog id="detailDialog" class="detail-dialog">
+      <button class="dialog-close" data-close aria-label="Close">×</button>
+      <div id="detailContent"></div>
+    </dialog>
+
+    <dialog id="logDialog" class="log-dialog">
+      <form id="logForm" method="dialog">
+        <div class="dialog-heading"><p class="eyebrow">FIELD NOTE</p><h2>Log a find</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+        <label>Species<select id="logSpecies" required></select></label>
+        <label>What did you notice?<textarea id="logNotes" rows="3" maxlength="240" placeholder="Habitat, color, nearby trees, field marks…"></textarea></label>
+        <label class="check"><input id="privateLocation" type="checkbox" checked><span>Keep exact location private on this device</span></label>
+        <p class="form-note">Location records stay on this device in this first version.</p>
+        <div class="form-actions"><button value="cancel" class="secondary">Cancel</button><button id="saveFind" value="default" class="primary">Save field note</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="sourceDialog" class="detail-dialog">
+      <button class="dialog-close" data-close aria-label="Close">×</button>
+      <div class="source-content">
+        <p class="eyebrow">DATA PROVENANCE</p>
+        <h2>Sources &amp; coverage</h2>
+        <p>Forage Finder combines curated safety notes with authorized public biodiversity records. Every image and observation must retain its source, license, date and geographic precision. Reverse search and social discovery are corroborating evidence, not proof of identity or edibility.</p>
+        <div id="sourceList" class="source-list"></div>
+        <p class="notice"><strong>Apple clarification:</strong> Apple Visual Intelligence and Vision can help classify a photo on supported devices, but Apple does not publish its private recognition-image catalog for bulk indexing. User-selected Apple Photos stay on device unless the user explicitly submits one.</p>
+      </div>
+    </dialog>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Primary navigation">
+    <a class="active" href="#map-view"><span>⌖</span>Explore</a>
+    <button id="identifyButton"><span>◉</span>Identify</button>
+    <button id="savedButton"><span>◇</span>My finds</button>
+    <button id="guideButton"><span>≡</span>Safety</button>
+  </nav>
+
+  <input id="photoInput" type="file" accept="image/*" capture="environment" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="sighting-intelligence.js"></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
