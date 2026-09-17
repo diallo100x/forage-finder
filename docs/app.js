@@ -158,6 +158,6 @@ $('#identifyButton').addEventListener('click',()=>$('#photoInput').click()); $('
 $('#savedButton').addEventListener('click',()=>{const count=JSON.parse(localStorage.getItem('forageFinds')||'[]').length;toast(count?`${count} field ${count===1?'note':'notes'} saved on this device`:'No field notes saved yet')});
 $('#guideButton').addEventListener('click',()=>toast('Verify multiple field marks, avoid fungi without expert review, get permission, and leave enough for wildlife.'));
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installButton').hidden=false}); $('#installButton').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installButton').hidden=true});
-if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js'));
+if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=4'));
 window.ForageRadar={signals:sightingSignals,providers:window.FFIntel?.providerCatalog||[],addSignals(items){sightingSignals.push(...items.map(item=>window.FFIntel?window.FFIntel.normalize(item):item));renderRadarStatus();}};
 renderRegions(); renderRadarStatus(); renderList(); initMap();
