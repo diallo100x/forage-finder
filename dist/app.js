@@ -152,16 +152,22 @@ function normalizeGBIFOccurrence(record){
 
 async function loadVirginiaPawpawOccurrences(){
   const status=$('#occurrenceLayerCount'); status.textContent='Loading open Virginia pawpaw records…';
-  const bounds='nelat=39.47&nelng=-75.24&swlat=36.54&swlng=-83.68';
-  const base=`https://api.inaturalist.org/v1/observations?taxon_name=${encodeURIComponent('Asimina triloba')}&${bounds}&photos=true&per_page=100&order_by=observed_on&order=desc`;
   try{
+    const placesResponse=await fetch('https://api.inaturalist.org/v1/places/autocomplete?q=Virginia&per_page=20');
+    if(!placesResponse.ok)throw new Error('iNaturalist place lookup unavailable');
+    const placesData=await placesResponse.json();
+    const places=placesData.results||[];
+    const virginia=places.find(place=>String(place.name||'').toLowerCase()==='virginia'&&/\b(us|usa|united states)\b/i.test(String(place.display_name||'')))
+      ||places.find(place=>String(place.name||'').toLowerCase()==='virginia');
+    if(!virginia?.id)throw new Error('Virginia place boundary unavailable');
+    const base=`https://api.inaturalist.org/v1/observations?taxon_name=${encodeURIComponent('Asimina triloba')}&place_id=${encodeURIComponent(virginia.id)}&photos=true&per_page=100&order_by=observed_on&order=desc`;
     const [wildResponse,cultivatedResponse]=await Promise.all([fetch(`${base}&quality_grade=research&captive=false`),fetch(`${base}&captive=true`)]);
     if(!wildResponse.ok||!cultivatedResponse.ok)throw new Error('iNaturalist unavailable');
     const [wildData,cultivatedData]=await Promise.all([wildResponse.json(),cultivatedResponse.json()]);
     const wild=(wildData.results||[]).map(normalizeINatObservation).filter(Boolean).map(record=>({...record,cultivated:false}));
     const cultivated=(cultivatedData.results||[]).map(normalizeINatObservation).filter(Boolean).map(record=>({...record,cultivated:true,quality:'photo-backed cultivated'}));
     liveOccurrences=[...wild,...cultivated];
-    status.textContent=`Pawpaw: ${wildData.total_results||wild.length} wild/research · ${cultivatedData.total_results||cultivated.length} cultivated/photo-backed`;
+    status.textContent=`Virginia pawpaw: ${wildData.total_results||wild.length} wild/research · ${cultivatedData.total_results||cultivated.length} cultivated/photo-backed`;
   }catch(error){
     try{
       const fallback='https://api.gbif.org/v1/occurrence/search?scientific_name=Asimina%20triloba&state_province=Virginia&country=US&has_coordinate=true&occurrence_status=present&limit=200';
@@ -224,6 +230,6 @@ $('#identifyButton').addEventListener('click',()=>$('#photoInput').click()); $('
 $('#savedButton').addEventListener('click',()=>{const count=JSON.parse(localStorage.getItem('forageFinds')||'[]').length;toast(count?`${count} field ${count===1?'note':'notes'} saved on this device`:'No field notes saved yet')});
 $('#guideButton').addEventListener('click',()=>toast('Verify multiple field marks, avoid fungi without expert review, get permission, and leave enough for wildlife.'));
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installButton').hidden=false}); $('#installButton').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installButton').hidden=true});
-if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=6'));
+if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=7'));
 window.ForageRadar={signals:sightingSignals,providers:window.FFIntel?.providerCatalog||[],addSignals(items){sightingSignals.push(...items.map(item=>window.FFIntel?window.FFIntel.normalize(item):item));renderRadarStatus();renderReportLayer();}};
 renderRegions(); renderRadarStatus(); renderList(); initMap();
