@@ -138,16 +138,19 @@ function renderReportLayer(){
 }
 
 function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));}
+function publicImageUrl(value){try{const url=new URL(String(value||''));return url.protocol==='https:'?url.href:'';}catch{return'';}}
 
 function normalizeINatObservation(obs){
   const coordinates=obs.geojson?.coordinates; if(!Array.isArray(coordinates)||coordinates.length<2)return null;
   if(obs.geoprivacy&&obs.geoprivacy!=='open')return null;
-  return{id:`inat-${obs.id}`,species:'pawpaw',lat:Number(coordinates[1]),lng:Number(coordinates[0]),source:'iNaturalist',sourceUrl:obs.uri||`https://www.inaturalist.org/observations/${obs.id}`,observedAt:obs.observed_on||obs.created_at,place:obs.place_guess||'Virginia',quality:obs.quality_grade||'community',cultivated:Boolean(obs.captive),photoBacked:Boolean(obs.photos?.length),coordinateUncertainty:obs.positional_accuracy||null};
+  const photo=obs.photos?.[0]; const imageUrl=publicImageUrl(photo?.medium_url||photo?.url);
+  return{id:`inat-${obs.id}`,species:'pawpaw',lat:Number(coordinates[1]),lng:Number(coordinates[0]),source:'iNaturalist',sourceUrl:obs.uri||`https://www.inaturalist.org/observations/${obs.id}`,imageUrl,photoAttribution:photo?.attribution||'',observedAt:obs.observed_on||obs.created_at,place:obs.place_guess||'Virginia',quality:obs.quality_grade||'community',cultivated:Boolean(obs.captive),photoBacked:Boolean(imageUrl),coordinateUncertainty:obs.positional_accuracy||null};
 }
 
 function normalizeGBIFOccurrence(record){
   if(!Number.isFinite(record.decimalLatitude)||!Number.isFinite(record.decimalLongitude))return null;
-  return{id:`gbif-${record.key}`,species:'pawpaw',lat:record.decimalLatitude,lng:record.decimalLongitude,source:'GBIF',sourceUrl:`https://www.gbif.org/occurrence/${record.key}`,observedAt:record.eventDate||record.year||'',place:[record.locality,record.county,record.stateProvince].filter(Boolean).join(', ')||'Virginia',quality:record.basisOfRecord||'occurrence record',cultivated:false,photoBacked:Array.isArray(record.media)&&record.media.length>0,coordinateUncertainty:record.coordinateUncertaintyInMeters||null};
+  const media=record.media?.[0]; const imageUrl=publicImageUrl(media?.identifier||media?.references);
+  return{id:`gbif-${record.key}`,species:'pawpaw',lat:record.decimalLatitude,lng:record.decimalLongitude,source:'GBIF',sourceUrl:`https://www.gbif.org/occurrence/${record.key}`,imageUrl,photoAttribution:media?.creator||record.recordedBy||'',observedAt:record.eventDate||record.year||'',place:[record.locality,record.county,record.stateProvince].filter(Boolean).join(', ')||'Virginia',quality:record.basisOfRecord||'occurrence record',cultivated:false,photoBacked:Boolean(imageUrl),coordinateUncertainty:record.coordinateUncertaintyInMeters||null};
 }
 
 async function loadVirginiaPawpawOccurrences(){
@@ -184,8 +187,9 @@ function renderOccurrenceLayer(){
     const kind=record.cultivated?'cultivated':record.quality==='research'?'research':'community'; const label=record.cultivated?'Cultivated/photo-backed record':record.quality==='research'?'Wild research-grade observation':'Documented occurrence';
     const icon=L.divIcon({className:'',html:`<div class="occurrence-marker ${kind}" aria-hidden="true">●</div>`,iconSize:[18,18],iconAnchor:[9,9]});
     const uncertainty=record.coordinateUncertainty?` · ±${Math.round(record.coordinateUncertainty)} m`:''; const permission=record.cultivated?'<br><strong>Cultivated does not mean publicly accessible or available to forage.</strong>':'';
-    const popup=`<strong>Pawpaw</strong><br>${escapeHtml(record.place)}<br><small>${escapeHtml(record.source)} · ${escapeHtml(record.observedAt||'date unavailable')}${uncertainty}</small><br><span class="occurrence-popup-badge">${escapeHtml(label)}</span>${permission}<br><a href="${escapeHtml(record.sourceUrl)}" target="_blank" rel="noopener">View source record ↗</a>`;
-    occurrenceMarkers.push(L.marker([record.lat,record.lng],{icon,zIndexOffset:150}).addTo(map).bindPopup(popup));
+    const photo=record.imageUrl?`<a class="occurrence-photo-link" href="${escapeHtml(record.sourceUrl)}" target="_blank" rel="noopener"><img class="occurrence-photo" src="${escapeHtml(record.imageUrl)}" alt="Pawpaw observation photo" loading="lazy"></a>${record.photoAttribution?`<small class="occurrence-photo-credit">${escapeHtml(record.photoAttribution)}</small>`:''}`:'';
+    const popup=`${photo}<strong>Pawpaw</strong><br>${escapeHtml(record.place)}<br><small>${escapeHtml(record.source)} · ${escapeHtml(record.observedAt||'date unavailable')}${uncertainty}</small><br><span class="occurrence-popup-badge">${escapeHtml(label)}</span>${permission}<br><a href="${escapeHtml(record.sourceUrl)}" target="_blank" rel="noopener">View source record ↗</a>`;
+    occurrenceMarkers.push(L.marker([record.lat,record.lng],{icon,zIndexOffset:150}).addTo(map).bindPopup(popup,{maxWidth:270}));
   });
 }
 
@@ -230,6 +234,6 @@ $('#identifyButton').addEventListener('click',()=>$('#photoInput').click()); $('
 $('#savedButton').addEventListener('click',()=>{const count=JSON.parse(localStorage.getItem('forageFinds')||'[]').length;toast(count?`${count} field ${count===1?'note':'notes'} saved on this device`:'No field notes saved yet')});
 $('#guideButton').addEventListener('click',()=>toast('Verify multiple field marks, avoid fungi without expert review, get permission, and leave enough for wildlife.'));
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installButton').hidden=false}); $('#installButton').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installButton').hidden=true});
-if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=7'));
+if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=8'));
 window.ForageRadar={signals:sightingSignals,providers:window.FFIntel?.providerCatalog||[],addSignals(items){sightingSignals.push(...items.map(item=>window.FFIntel?window.FFIntel.normalize(item):item));renderRadarStatus();renderReportLayer();}};
 renderRegions(); renderRadarStatus(); renderList(); initMap();
