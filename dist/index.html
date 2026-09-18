@@ -6,11 +6,11 @@
   <meta name="theme-color" content="#123d2a">
   <meta name="description" content="Find, learn about, and responsibly document regional edible plants and fungi.">
   <title>Forage Finder</title>
-  <link rel="manifest" href="manifest.webmanifest?v=5">
+  <link rel="manifest" href="manifest.webmanifest?v=6">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <header class="topbar">
@@ -62,6 +62,8 @@
         <div id="map" aria-label="Map of regional forage observations"></div>
         <div class="map-message" id="mapMessage" role="status">Loading map…</div>
         <div class="map-layers" aria-label="Map layers">
+          <label><input id="occurrenceLayerToggle" type="checkbox" checked><span>Documented occurrences</span></label>
+          <small id="occurrenceLayerCount">Loading Virginia records…</small>
           <label><input id="reportLayerToggle" type="checkbox" checked><span>Public reports</span></label>
           <small id="reportLayerCount">0 report signals</small>
         </div>
@@ -95,7 +97,7 @@
       <div class="source-content">
         <p class="eyebrow">DATA PROVENANCE</p>
         <h2>Sources &amp; coverage</h2>
-        <p>Forage Finder combines curated safety notes with authorized public biodiversity records. Every image and observation must retain its source, license, date and geographic precision. The Public reports layer can use public hashtags, captions, timestamps, declared place names, provider-supplied coordinates and permitted photo-verification signals. Reverse search and social discovery are corroborating evidence, not proof of identity or edibility.</p>
+        <p>Forage Finder combines curated safety notes with authorized public biodiversity records. Every image and observation must retain its source, license, date and geographic precision. The Documented occurrences layer requests open Virginia biodiversity records and separates wild/research-grade observations from cultivated/photo-backed records. Cultivated records show that a species grows regionally; they are not public foraging locations. The Public reports layer can use public hashtags, captions, timestamps, declared place names, provider-supplied coordinates and permitted photo-verification signals. Reverse search and social discovery are corroborating evidence, not proof of identity or edibility.</p>
         <div id="sourceList" class="source-list"></div>
         <p class="notice"><strong>Apple clarification:</strong> Apple Visual Intelligence and Vision can help classify a photo on supported devices, but Apple does not publish its private recognition-image catalog for bulk indexing. User-selected Apple Photos stay on device unless the user explicitly submits one.</p>
       </div>
@@ -112,7 +114,7 @@
   <input id="photoInput" type="file" accept="image/*" capture="environment" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="sighting-intelligence.js?v=5"></script>
-  <script src="app.js?v=5" defer></script>
+  <script src="sighting-intelligence.js?v=6"></script>
+  <script src="app.js?v=6" defer></script>
 </body>
 </html>

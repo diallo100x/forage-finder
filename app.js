@@ -49,7 +49,7 @@ const sightingSignals = [
   {species:'chicken',sourceType:'community',identityConfidence:.68,locationConfidence:.2,corroboration:.4,observedAt:'2026-09-15',lat:null,lng:null,geoprivacy:'private'}
 ];
 
-let currentFilter='all'; let currentRegion=regions[1]; let map; let markers=[]; let reportMarkers=[]; let reportLayerEnabled=true; let userMarker; let installPrompt; let currentPosition={lat:37.5407,lng:-77.4360};
+let currentFilter='all'; let currentRegion=regions[1]; let map; let markers=[]; let reportMarkers=[]; let occurrenceMarkers=[]; let liveOccurrences=[]; let reportLayerEnabled=true; let occurrenceLayerEnabled=true; let userMarker; let installPrompt; let currentPosition={lat:37.5407,lng:-77.4360};
 const $=s=>document.querySelector(s); const $$=s=>[...document.querySelectorAll(s)];
 
 function renderList(){
@@ -109,7 +109,7 @@ function initMap(){
   if(!window.L){ $('#mapMessage').textContent='Map unavailable offline · guide still works'; return; }
   map=L.map('map',{zoomControl:false}).setView([37.5407,-77.4360],12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap contributors'}).addTo(map);
-  L.control.zoom({position:'bottomright'}).addTo(map); renderMarkers(); renderReportLayer(); $('#mapMessage').hidden=true;
+  L.control.zoom({position:'bottomright'}).addTo(map); renderMarkers(); renderReportLayer(); loadVirginiaPawpawOccurrences(); $('#mapMessage').hidden=true;
 }
 
 function renderMarkers(speciesId=null){
@@ -137,6 +137,52 @@ function renderReportLayer(){
   });
 }
 
+function escapeHtml(value){return String(value??'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));}
+
+function normalizeINatObservation(obs){
+  const coordinates=obs.geojson?.coordinates; if(!Array.isArray(coordinates)||coordinates.length<2)return null;
+  if(obs.geoprivacy&&obs.geoprivacy!=='open')return null;
+  return{id:`inat-${obs.id}`,species:'pawpaw',lat:Number(coordinates[1]),lng:Number(coordinates[0]),source:'iNaturalist',sourceUrl:obs.uri||`https://www.inaturalist.org/observations/${obs.id}`,observedAt:obs.observed_on||obs.created_at,place:obs.place_guess||'Virginia',quality:obs.quality_grade||'community',cultivated:Boolean(obs.captive),photoBacked:Boolean(obs.photos?.length),coordinateUncertainty:obs.positional_accuracy||null};
+}
+
+function normalizeGBIFOccurrence(record){
+  if(!Number.isFinite(record.decimalLatitude)||!Number.isFinite(record.decimalLongitude))return null;
+  return{id:`gbif-${record.key}`,species:'pawpaw',lat:record.decimalLatitude,lng:record.decimalLongitude,source:'GBIF',sourceUrl:`https://www.gbif.org/occurrence/${record.key}`,observedAt:record.eventDate||record.year||'',place:[record.locality,record.county,record.stateProvince].filter(Boolean).join(', ')||'Virginia',quality:record.basisOfRecord||'occurrence record',cultivated:false,photoBacked:Array.isArray(record.media)&&record.media.length>0,coordinateUncertainty:record.coordinateUncertaintyInMeters||null};
+}
+
+async function loadVirginiaPawpawOccurrences(){
+  const status=$('#occurrenceLayerCount'); status.textContent='Loading open Virginia pawpaw records…';
+  const bounds='nelat=39.47&nelng=-75.24&swlat=36.54&swlng=-83.68';
+  const base=`https://api.inaturalist.org/v1/observations?taxon_name=${encodeURIComponent('Asimina triloba')}&${bounds}&photos=true&per_page=100&order_by=observed_on&order=desc`;
+  try{
+    const [wildResponse,cultivatedResponse]=await Promise.all([fetch(`${base}&quality_grade=research&captive=false`),fetch(`${base}&captive=true`)]);
+    if(!wildResponse.ok||!cultivatedResponse.ok)throw new Error('iNaturalist unavailable');
+    const [wildData,cultivatedData]=await Promise.all([wildResponse.json(),cultivatedResponse.json()]);
+    const wild=(wildData.results||[]).map(normalizeINatObservation).filter(Boolean).map(record=>({...record,cultivated:false}));
+    const cultivated=(cultivatedData.results||[]).map(normalizeINatObservation).filter(Boolean).map(record=>({...record,cultivated:true,quality:'photo-backed cultivated'}));
+    liveOccurrences=[...wild,...cultivated];
+    status.textContent=`Pawpaw: ${wildData.total_results||wild.length} wild/research · ${cultivatedData.total_results||cultivated.length} cultivated/photo-backed`;
+  }catch(error){
+    try{
+      const fallback='https://api.gbif.org/v1/occurrence/search?scientific_name=Asimina%20triloba&state_province=Virginia&country=US&has_coordinate=true&occurrence_status=present&limit=200';
+      const response=await fetch(fallback); if(!response.ok)throw new Error('GBIF unavailable'); const data=await response.json();
+      liveOccurrences=(data.results||[]).map(normalizeGBIFOccurrence).filter(Boolean); status.textContent=`Pawpaw: ${data.count||liveOccurrences.length} statewide GBIF records`;
+    }catch(fallbackError){liveOccurrences=[];status.textContent='Live statewide records temporarily unavailable';}
+  }
+  renderOccurrenceLayer();
+}
+
+function renderOccurrenceLayer(){
+  if(!map)return; occurrenceMarkers.forEach(marker=>marker.remove()); occurrenceMarkers=[]; if(!occurrenceLayerEnabled)return;
+  liveOccurrences.forEach(record=>{
+    const kind=record.cultivated?'cultivated':record.quality==='research'?'research':'community'; const label=record.cultivated?'Cultivated/photo-backed record':record.quality==='research'?'Wild research-grade observation':'Documented occurrence';
+    const icon=L.divIcon({className:'',html:`<div class="occurrence-marker ${kind}" aria-hidden="true">●</div>`,iconSize:[18,18],iconAnchor:[9,9]});
+    const uncertainty=record.coordinateUncertainty?` · ±${Math.round(record.coordinateUncertainty)} m`:''; const permission=record.cultivated?'<br><strong>Cultivated does not mean publicly accessible or available to forage.</strong>':'';
+    const popup=`<strong>Pawpaw</strong><br>${escapeHtml(record.place)}<br><small>${escapeHtml(record.source)} · ${escapeHtml(record.observedAt||'date unavailable')}${uncertainty}</small><br><span class="occurrence-popup-badge">${escapeHtml(label)}</span>${permission}<br><a href="${escapeHtml(record.sourceUrl)}" target="_blank" rel="noopener">View source record ↗</a>`;
+    occurrenceMarkers.push(L.marker([record.lat,record.lng],{icon,zIndexOffset:150}).addTo(map).bindPopup(popup));
+  });
+}
+
 function distanceMiles(a,b){const r=3958.8,toRad=value=>value*Math.PI/180;const dLat=toRad(b.lat-a.lat),dLng=toRad(b.lng-a.lng);const h=Math.sin(dLat/2)**2+Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;return 2*r*Math.asin(Math.sqrt(h));}
 
 function setUserLocation(position,message='Map centered on your location'){
@@ -155,7 +201,7 @@ function findNearMe(id){
   if(!navigator.geolocation){toast(`Showing known approximate ${item.name} sightings`);return;}
   navigator.geolocation.getCurrentPosition(position=>{
     setUserLocation(position,`Finding ${item.name} near you…`); renderMarkers(id);
-    const matches=observations.filter(obs=>obs.species===id); if(!matches.length){toast(`No public ${item.name} sightings nearby yet · showing habitat guidance`);return;}
+    const matches=[...observations.filter(obs=>obs.species===id),...liveOccurrences.filter(record=>record.species===id)]; if(!matches.length){toast(`No public ${item.name} sightings nearby yet · showing habitat guidance`);return;}
     const nearest=matches.map(obs=>({...obs,miles:distanceMiles(currentPosition,obs)})).sort((a,b)=>a.miles-b.miles)[0];
     if(map){const points=[[currentPosition.lat,currentPosition.lng],...matches.map(obs=>[obs.lat,obs.lng])];map.fitBounds(points,{padding:[55,55],maxZoom:13});if(markers[0])markers[0].openPopup();}
     toast(`Closest approximate ${item.name} signal: ${nearest.miles.toFixed(1)} mi`);
@@ -169,6 +215,7 @@ $$('.filter').forEach(button=>button.addEventListener('click',()=>{$$('.filter')
 $('#searchInput').addEventListener('input',renderList); $$('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 $('#applyRegion').addEventListener('click',applyRegion); $('#regionInput').addEventListener('change',applyRegion); $('#regionInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyRegion()}});
 $('#sourceButton').addEventListener('click',()=>$('#sourceDialog').showModal());
+$('#occurrenceLayerToggle').addEventListener('change',event=>{occurrenceLayerEnabled=event.target.checked;renderOccurrenceLayer();toast(occurrenceLayerEnabled?'Documented occurrences shown':'Documented occurrences hidden')});
 $('#reportLayerToggle').addEventListener('change',event=>{reportLayerEnabled=event.target.checked;renderReportLayer();toast(reportLayerEnabled?'Public reports layer shown':'Public reports layer hidden')});
 $('#addFindButton').addEventListener('click',openLog);
 $('#logForm').addEventListener('submit',event=>{if(event.submitter?.value==='cancel')return;const saved=JSON.parse(localStorage.getItem('forageFinds')||'[]');saved.push({species:$('#logSpecies').value,notes:$('#logNotes').value,position:currentPosition,private:$('#privateLocation').checked,createdAt:new Date().toISOString()});localStorage.setItem('forageFinds',JSON.stringify(saved));toast('Field note saved on this device');$('#logForm').reset()});
@@ -177,6 +224,6 @@ $('#identifyButton').addEventListener('click',()=>$('#photoInput').click()); $('
 $('#savedButton').addEventListener('click',()=>{const count=JSON.parse(localStorage.getItem('forageFinds')||'[]').length;toast(count?`${count} field ${count===1?'note':'notes'} saved on this device`:'No field notes saved yet')});
 $('#guideButton').addEventListener('click',()=>toast('Verify multiple field marks, avoid fungi without expert review, get permission, and leave enough for wildlife.'));
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installButton').hidden=false}); $('#installButton').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installButton').hidden=true});
-if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=5'));
+if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=6'));
 window.ForageRadar={signals:sightingSignals,providers:window.FFIntel?.providerCatalog||[],addSignals(items){sightingSignals.push(...items.map(item=>window.FFIntel?window.FFIntel.normalize(item):item));renderRadarStatus();renderReportLayer();}};
 renderRegions(); renderRadarStatus(); renderList(); initMap();
