@@ -37,18 +37,19 @@ const dataSources = [
   {name:'USDA PLANTS',use:'United States plant profiles, distribution and reference data under published access and reuse terms.',url:'https://plants.usda.gov/'},
   {name:'Apple Vision / Visual Intelligence',use:'Optional on-device photo classification and system handoff; no bulk ingestion of Apple private image catalogs.',url:'https://developer.apple.com/machine-learning/api/'},
   {name:'Google Lens / Images, TinEye & Pinterest Lens',use:'User-initiated reverse-search or authorized provider integrations for corroborating context. Forage Finder does not scrape these services.',url:'https://lens.google/'},
+  {name:'Meta family, TikTok & Pinterest public reports',use:'Permitted public-post adapters can retain hashtags, captions, dates, declared place names, public coordinates and provider photo-verification status. Hidden or obscured locations are never reconstructed.',url:'https://developers.facebook.com/'},
   {name:'Open vision models',use:'Replaceable OpenCV, YOLO, RAM/RAM++ and CLIP-family adapters can generate regions, tags and candidate matches without exposing private coordinates.',url:'https://opencv.org/'},
   {name:'Regional expert references',use:'University extension, herbaria and parks for safety review and local context.',url:'https://ext.vt.edu/'}
 ];
 
 const sightingSignals = [
   {species:'pawpaw',sourceType:'inaturalist',identityConfidence:.96,locationConfidence:.92,corroboration:.8,observedAt:'2026-09-10',lat:37.54,lng:-77.43,geoprivacy:'open'},
-  {species:'mulberry',sourceType:'social',identityConfidence:.72,locationConfidence:.45,corroboration:.62,observedAt:'2026-09-12',lat:37.56,lng:-77.47,geoprivacy:'obscured'},
+  {species:'mulberry',sourceType:'social',provider:'public-report-prototype',identityConfidence:.72,locationConfidence:.45,corroboration:.62,observedAt:'2026-09-12',lat:37.56,lng:-77.47,geoprivacy:'obscured',declaredPlace:'Richmond metro',tags:['foraging','mulberry','regional-fruit'],photoVerification:'unverified',demo:true},
   {species:'persimmon',sourceType:'historical',identityConfidence:.88,locationConfidence:.65,corroboration:.7,observedAt:'2025-10-02',lat:37.51,lng:-77.41,geoprivacy:'open'},
   {species:'chicken',sourceType:'community',identityConfidence:.68,locationConfidence:.2,corroboration:.4,observedAt:'2026-09-15',lat:null,lng:null,geoprivacy:'private'}
 ];
 
-let currentFilter='all'; let currentRegion=regions[1]; let map; let markers=[]; let userMarker; let installPrompt; let currentPosition={lat:37.5407,lng:-77.4360};
+let currentFilter='all'; let currentRegion=regions[1]; let map; let markers=[]; let reportMarkers=[]; let reportLayerEnabled=true; let userMarker; let installPrompt; let currentPosition={lat:37.5407,lng:-77.4360};
 const $=s=>document.querySelector(s); const $$=s=>[...document.querySelectorAll(s)];
 
 function renderList(){
@@ -108,7 +109,7 @@ function initMap(){
   if(!window.L){ $('#mapMessage').textContent='Map unavailable offline · guide still works'; return; }
   map=L.map('map',{zoomControl:false}).setView([37.5407,-77.4360],12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap contributors'}).addTo(map);
-  L.control.zoom({position:'bottomright'}).addTo(map); renderMarkers(); $('#mapMessage').hidden=true;
+  L.control.zoom({position:'bottomright'}).addTo(map); renderMarkers(); renderReportLayer(); $('#mapMessage').hidden=true;
 }
 
 function renderMarkers(speciesId=null){
@@ -116,6 +117,23 @@ function renderMarkers(speciesId=null){
   observations.forEach(obs=>{const item=species.find(entry=>entry.id===obs.species); if(!item||(speciesId&&obs.species!==speciesId)||(currentFilter!=='all'&&!item.type.includes(currentFilter)))return;
     const icon=L.divIcon({className:'',html:`<div class="custom-marker"><span>${item.icon}</span></div>`,iconSize:[34,42],iconAnchor:[17,40]});
     markers.push(L.marker([obs.lat,obs.lng],{icon}).addTo(map).bindPopup(`<strong>${item.name}</strong><br>${obs.label}<br><small>Approximate location</small>`));
+  });
+}
+
+function renderReportLayer(){
+  if(!map)return; reportMarkers.forEach(marker=>marker.remove()); reportMarkers=[];
+  const intel=window.FFIntel; const normalized=sightingSignals.filter(signal=>signal.sourceType==='social').map(signal=>intel?intel.normalize(signal):signal);
+  const visible=normalized.filter(signal=>Number.isFinite(signal.lat)&&Number.isFinite(signal.lng)&&signal.geoprivacy!=='private');
+  $('#reportLayerCount').textContent=`${normalized.length} public ${normalized.length===1?'signal':'signals'} · ${visible.length} mapped`;
+  if(!reportLayerEnabled)return;
+  visible.forEach(signal=>{
+    const item=species.find(entry=>entry.id===signal.species); if(!item)return;
+    const icon=L.divIcon({className:'',html:`<div class="report-marker" aria-hidden="true">#</div>`,iconSize:[28,28],iconAnchor:[14,14]});
+    const tags=(signal.tags||[]).map(tag=>`#${tag.replace(/^#/,'')}`).join(' '); const verification=signal.photoVerification||'not supplied';
+    const privacy=signal.geoprivacy==='obscured'?'Obscured/approximate source location':'Public source location';
+    const demo=signal.demo?'<br><span class="report-popup-badge">Prototype signal · not a live report</span>':'';
+    const popup=`<strong>${item.name} public report</strong><br>${signal.declaredPlace||'Place not declared'}<br><small>${tags||'No hashtags'} · photo: ${verification}<br>${privacy}</small>${demo}`;
+    reportMarkers.push(L.marker([signal.lat,signal.lng],{icon,zIndexOffset:350}).addTo(map).bindPopup(popup));
   });
 }
 
@@ -151,6 +169,7 @@ $$('.filter').forEach(button=>button.addEventListener('click',()=>{$$('.filter')
 $('#searchInput').addEventListener('input',renderList); $$('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 $('#applyRegion').addEventListener('click',applyRegion); $('#regionInput').addEventListener('change',applyRegion); $('#regionInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyRegion()}});
 $('#sourceButton').addEventListener('click',()=>$('#sourceDialog').showModal());
+$('#reportLayerToggle').addEventListener('change',event=>{reportLayerEnabled=event.target.checked;renderReportLayer();toast(reportLayerEnabled?'Public reports layer shown':'Public reports layer hidden')});
 $('#addFindButton').addEventListener('click',openLog);
 $('#logForm').addEventListener('submit',event=>{if(event.submitter?.value==='cancel')return;const saved=JSON.parse(localStorage.getItem('forageFinds')||'[]');saved.push({species:$('#logSpecies').value,notes:$('#logNotes').value,position:currentPosition,private:$('#privateLocation').checked,createdAt:new Date().toISOString()});localStorage.setItem('forageFinds',JSON.stringify(saved));toast('Field note saved on this device');$('#logForm').reset()});
 $('#locateButton').addEventListener('click',locateUser);
@@ -158,6 +177,6 @@ $('#identifyButton').addEventListener('click',()=>$('#photoInput').click()); $('
 $('#savedButton').addEventListener('click',()=>{const count=JSON.parse(localStorage.getItem('forageFinds')||'[]').length;toast(count?`${count} field ${count===1?'note':'notes'} saved on this device`:'No field notes saved yet')});
 $('#guideButton').addEventListener('click',()=>toast('Verify multiple field marks, avoid fungi without expert review, get permission, and leave enough for wildlife.'));
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installButton').hidden=false}); $('#installButton').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installButton').hidden=true});
-if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=4'));
-window.ForageRadar={signals:sightingSignals,providers:window.FFIntel?.providerCatalog||[],addSignals(items){sightingSignals.push(...items.map(item=>window.FFIntel?window.FFIntel.normalize(item):item));renderRadarStatus();}};
+if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=5'));
+window.ForageRadar={signals:sightingSignals,providers:window.FFIntel?.providerCatalog||[],addSignals(items){sightingSignals.push(...items.map(item=>window.FFIntel?window.FFIntel.normalize(item):item));renderRadarStatus();renderReportLayer();}};
 renderRegions(); renderRadarStatus(); renderList(); initMap();
