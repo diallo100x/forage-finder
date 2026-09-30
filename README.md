@@ -18,11 +18,11 @@ An installable, mobile-first forage intelligence PWA: identify likely species, d
 
 Potential sources include iNaturalist and Pl@ntNet; self-hosted OpenCV, YOLO, RAM/RAM++, and CLIP-family models; and authorized integrations with reverse-image/discovery providers. Public social signals can contribute captions, hashtags, timestamps, public place names and publicly exposed coordinates when provider terms/API access permit it. Examples include forage/species/regional-fruit hashtags. Social evidence is intentionally weighted below strong biological observations.
 
-`dist/sighting-intelligence.js` contains the provider contract, scoring model, recency decay, clustering primitives, seasonal-likelihood helper and geoprivacy enforcement. `dist/radar-ui.js` connects the current PWA to the intelligence layer. Provider network calls are deliberately adapters rather than hard-coded scrapers.
+`dist/sighting-intelligence.js` contains the provider contract, scoring model, recency decay, clustering primitives, seasonal-likelihood helper and geoprivacy enforcement. `dist/app.js` connects the current PWA to the intelligence layer; `radar-ui.js` is an inert compatibility asset. Provider network calls are deliberately adapters rather than hard-coded scrapers.
 
 ## Location/privacy policy
 
-Forage Finder must **never reconstruct an intentionally hidden location**. A source marked private loses coordinates in normalization; obscured coordinates retain their source precision and must not be sharpened by cross-referencing other clues. Sensitive species can therefore remain regional/approximate signals. Private user field notes stay local in this MVP.
+Forage Finder must **never reconstruct an intentionally hidden location**. A source marked private loses coordinates in normalization; obscured coordinates are also removed before signals are stored, exposed or mapped. Sensitive species can therefore remain regional/approximate signals. Private user field notes stay local in this MVP.
 
 ## Data-source policy
 
@@ -32,7 +32,7 @@ ImageNet/CIFAR are useful benchmark/training datasets, not live identification p
 
 ## Next production adapters
 
-1. iNaturalist observations/taxonomy with source geoprivacy preserved.
+1. Expand the live Virginia pawpaw iNaturalist/GBIF occurrence adapters with source geoprivacy preserved.
 2. Pl@ntNet plant-identification suggestions.
 3. Server-hosted vision pipeline (OpenCV/YOLO/RAM++/CLIP).
 4. Weather/phenology inputs for seasonal prediction.
@@ -46,3 +46,7 @@ Serve `dist/` with any static web server. HTTPS is required for geolocation and 
 ## Secrets
 
 The browser MVP has no private API keys. Do not commit credentials. Future private keys belong in server-side environment variables; browser keys must be domain/API restricted. See `docs/AUTHENTICATION.md`.
+
+## Regression checks
+
+Run `node --test tests/*.test.cjs`. Root, `dist/` and `docs/` assets are kept identical.

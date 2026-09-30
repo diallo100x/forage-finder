@@ -11,12 +11,12 @@ const species = [
 
 const observations = [
   {species:'pawpaw',lat:37.5407,lng:-77.4308,label:'Creek-bottom habitat'},
-  {species:'mulberry',lat:37.5569,lng:-77.4696,label:'Public observation'},
+  {species:'mulberry',lat:null,lng:null,geoprivacy:'obscured',label:'Regional observation'},
   {species:'violet',lat:37.5276,lng:-77.4474,label:'Seasonal report'},
   {species:'blackberry',lat:37.5702,lng:-77.5212,label:'Trail-edge habitat'},
   {species:'persimmon',lat:37.5139,lng:-77.4148,label:'Historic observation'},
-  {species:'chicken',lat:37.5794,lng:-77.4551,label:'Approximate area'}
-];
+  {species:'chicken',lat:null,lng:null,geoprivacy:'private',label:'Regional observation'}
+].map(obs=>window.FFIntel.normalize({...obs,city:'Richmond',state:'Virginia',region:'Central Virginia',geoprivacy:obs.geoprivacy||'open'}));
 
 const regions = [
   {name:'Near me',level:'Current location',scope:'Uses your device location only after permission is granted',center:null,zoom:14,boost:[]},
@@ -44,17 +44,33 @@ const dataSources = [
 
 const sightingSignals = [
   {species:'pawpaw',sourceType:'inaturalist',identityConfidence:.96,locationConfidence:.92,corroboration:.8,observedAt:'2026-09-10',lat:37.54,lng:-77.43,geoprivacy:'open'},
-  {species:'mulberry',sourceType:'social',provider:'public-report-prototype',identityConfidence:.72,locationConfidence:.45,corroboration:.62,observedAt:'2026-09-12',lat:37.56,lng:-77.47,geoprivacy:'obscured',declaredPlace:'Richmond metro',tags:['foraging','mulberry','regional-fruit'],photoVerification:'unverified',demo:true},
+  {species:'mulberry',sourceType:'social',provider:'public-report-prototype',identityConfidence:.72,locationConfidence:.45,corroboration:.62,observedAt:'2026-09-12',lat:null,lng:null,geoprivacy:'obscured',declaredPlace:'Richmond metro',tags:['foraging','mulberry','regional-fruit'],photoVerification:'unverified',demo:true},
   {species:'persimmon',sourceType:'historical',identityConfidence:.88,locationConfidence:.65,corroboration:.7,observedAt:'2025-10-02',lat:37.51,lng:-77.41,geoprivacy:'open'},
   {species:'chicken',sourceType:'community',identityConfidence:.68,locationConfidence:.2,corroboration:.4,observedAt:'2026-09-15',lat:null,lng:null,geoprivacy:'private'}
-];
+].map(signal=>window.FFIntel.normalize({...signal,city:'Richmond',state:'Virginia',region:'Central Virginia'}));
 
 let currentFilter='all'; let currentRegion=regions[1]; let map; let markers=[]; let reportMarkers=[]; let occurrenceMarkers=[]; let liveOccurrences=[]; let reportLayerEnabled=true; let occurrenceLayerEnabled=true; let userMarker; let installPrompt; let currentPosition={lat:37.5407,lng:-77.4360};
+let regionRequest=0;
 const $=s=>document.querySelector(s); const $$=s=>[...document.querySelectorAll(s)];
 
-function renderList(){
+function speciesMatches(item){
   const query=$('#searchInput').value.trim().toLowerCase();
-  const found=species.filter(item=>(currentFilter==='all'||item.type.includes(currentFilter))&&(`${item.name} ${item.latin} ${item.habitat}`.toLowerCase().includes(query)));
+  return (currentFilter==='all'||item.type.includes(currentFilter))&&`${item.name} ${item.latin} ${item.habitat}`.toLowerCase().includes(query);
+}
+function inRegion(record){
+  const safe=window.FFIntel.normalize(record);
+  if(currentRegion.name==='Near me')return Number.isFinite(safe.lat)&&Number.isFinite(safe.lng)&&distanceMiles(currentPosition,safe)<=30;
+  if(currentRegion.bounds&&Number.isFinite(safe.lat)&&Number.isFinite(safe.lng)){
+    const [south,north,west,east]=currentRegion.bounds;return safe.lat>=south&&safe.lat<=north&&safe.lng>=west&&safe.lng<=east;
+  }
+  return window.FFIntel.regionMatches(safe,currentRegion.name);
+}
+function scopedSignals(){return sightingSignals.filter(inRegion);}
+function refreshRegion(){renderList();renderMarkers();renderReportLayer();renderOccurrenceLayer();renderRadarStatus();}
+
+function renderList(){
+  const supported=regions.includes(currentRegion)||currentRegion.name==='Near me';
+  const found=species.filter(item=>speciesMatches(item)&&(supported||[...scopedSignals(),...liveOccurrences.filter(inRegion)].some(record=>record.species===item.id)));
   $('#resultCount').textContent=`${found.length} ${found.length===1?'find':'finds'}`;
   $('#speciesList').innerHTML=found.map(item=>`<button class="species-card" data-id="${item.id}"><span class="species-icon">${item.icon}</span><span><h3>${item.name}</h3><p>${item.season} · ${item.type.join(' / ')}</p></span><span class="likelihood">${regionalLikelihood(item)}</span></button>`).join('')||'<p>No regional guide entries match that search.</p>';
   $$('.species-card').forEach(button=>button.addEventListener('click',()=>showDetail(button.dataset.id)));
@@ -73,29 +89,31 @@ function renderRegions(){
 function renderRadarStatus(){
   const el=$('#radarStatus'); if(!el)return;
   if(!window.FFIntel){el.textContent='Signals ranked by source, identity, location, recency and corroboration';return;}
-  const cluster=window.FFIntel.cluster(sightingSignals); const strong=cluster.signals.filter(signal=>signal.score>=.5).length;
-  el.textContent=`${cluster.count} intelligence signals · ${strong} stronger leads · private/obscured locations protected`;
+  const cluster=window.FFIntel.cluster(scopedSignals()); const strong=cluster.signals.filter(signal=>window.FFIntel.confidenceLabel(signal.score)==='strong').length; const moderate=cluster.signals.filter(signal=>window.FFIntel.confidenceLabel(signal.score)==='moderate').length;
+  el.textContent=`${cluster.count} intelligence signals · ${strong} strong · ${moderate} moderate · private/obscured locations protected`;
 }
 
 async function applyRegion(){
-  const value=$('#regionInput').value.trim().toLowerCase();
+  const request=++regionRequest;
+  const value=window.FFIntel.canonicalRegion($('#regionInput').value);
   if(value==='near me'||value==='my location'){locateUser();return;}
-  const region=regions.find(r=>r.name.toLowerCase()===value)||regions.find(r=>r.name.toLowerCase().includes(value)||value.includes(r.name.toLowerCase()));
+  const region=regions.find(r=>window.FFIntel.canonicalRegion(r.name)===value);
+  if(!value){currentRegion={name:'',boost:[],level:'All loaded signals'};$('#regionEyebrow').textContent='ALL LOADED SIGNALS';$('#regionScope').textContent='All loaded public evidence';refreshRegion();return;}
   if(region){
     currentRegion=region; $('#regionInput').value=region.name; $('#regionEyebrow').textContent=region.name.toUpperCase(); $('#regionScope').textContent=`${region.level} · ${region.scope}`;
-    if(map&&region.center)map.setView(region.center,region.zoom); renderList(); toast(`Showing ${region.name}`);return;
+    if(map&&region.center)map.setView(region.center,region.zoom); refreshRegion(); toast(`Showing ${region.name}`);return;
   }
   $('#regionScope').textContent='Searching OpenStreetMap geographic index…';
   try{
     const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent($('#regionInput').value.trim())}`;
-    const result=(await fetch(url,{headers:{Accept:'application/json'}})).json(); const places=await result;
+    const response=await fetch(url,{headers:{Accept:'application/json'}}); if(!response.ok)throw new Error('Geocoder unavailable'); const places=await response.json(); if(request!==regionRequest)return;
     if(!places.length)throw new Error('not found');
     const place=places[0]; const center=[Number(place.lat),Number(place.lon)];
-    currentRegion={name:place.display_name.split(',').slice(0,3).join(','),level:'Searched area',scope:place.display_name,center,zoom:10,boost:species.map(item=>item.id)};
+    currentRegion={name:place.display_name.split(',').slice(0,3).join(','),level:'Searched area',scope:place.display_name,center,zoom:10,boost:[],bounds:place.boundingbox?.map(Number)};
     $('#regionEyebrow').textContent=currentRegion.name.toUpperCase(); $('#regionScope').textContent=`${currentRegion.level} · ${currentRegion.scope}`;
     if(map&&place.boundingbox){map.fitBounds([[Number(place.boundingbox[0]),Number(place.boundingbox[2])],[Number(place.boundingbox[1]),Number(place.boundingbox[3])]]);}else if(map){map.setView(center,10);}
-    renderList(); toast(`Showing ${currentRegion.name}`);
-  }catch(error){$('#regionScope').textContent='Region not found · try a city, state, Virginia Piedmont, or Mid-Atlantic';toast('Region not found');}
+    refreshRegion(); toast(`Showing ${currentRegion.name}`);
+  }catch(error){if(request!==regionRequest)return;$('#regionScope').textContent='Region not found · try a city, state, Virginia Piedmont, or Mid-Atlantic';toast('Region not found');}
 }
 
 function showDetail(id){
@@ -114,7 +132,7 @@ function initMap(){
 
 function renderMarkers(speciesId=null){
   if(!map)return; markers.forEach(marker=>marker.remove()); markers=[];
-  observations.forEach(obs=>{const item=species.find(entry=>entry.id===obs.species); if(!item||(speciesId&&obs.species!==speciesId)||(currentFilter!=='all'&&!item.type.includes(currentFilter)))return;
+  observations.filter(inRegion).filter(obs=>Number.isFinite(obs.lat)&&Number.isFinite(obs.lng)&&obs.geoprivacy==='open').forEach(obs=>{const item=species.find(entry=>entry.id===obs.species); if(!item||!speciesMatches(item)||(speciesId&&obs.species!==speciesId))return;
     const icon=L.divIcon({className:'',html:`<div class="custom-marker"><span>${item.icon}</span></div>`,iconSize:[34,42],iconAnchor:[17,40]});
     markers.push(L.marker([obs.lat,obs.lng],{icon}).addTo(map).bindPopup(`<strong>${item.name}</strong><br>${obs.label}<br><small>Approximate location</small>`));
   });
@@ -122,17 +140,17 @@ function renderMarkers(speciesId=null){
 
 function renderReportLayer(){
   if(!map)return; reportMarkers.forEach(marker=>marker.remove()); reportMarkers=[];
-  const intel=window.FFIntel; const normalized=sightingSignals.filter(signal=>signal.sourceType==='social').map(signal=>intel?intel.normalize(signal):signal);
-  const visible=normalized.filter(signal=>Number.isFinite(signal.lat)&&Number.isFinite(signal.lng)&&signal.geoprivacy!=='private');
+  const intel=window.FFIntel; const normalized=scopedSignals().filter(signal=>signal.sourceType==='social').map(signal=>intel?intel.normalize(signal):signal);
+  const visible=normalized.filter(signal=>{const item=species.find(s=>s.id===signal.species);return item&&speciesMatches(item)&&Number.isFinite(signal.lat)&&Number.isFinite(signal.lng)&&signal.geoprivacy==='open';});
   $('#reportLayerCount').textContent=`${normalized.length} public ${normalized.length===1?'signal':'signals'} · ${visible.length} mapped`;
   if(!reportLayerEnabled)return;
   visible.forEach(signal=>{
-    const item=species.find(entry=>entry.id===signal.species); if(!item)return;
+    const item=species.find(entry=>entry.id===signal.species); if(!item||!speciesMatches(item))return;
     const icon=L.divIcon({className:'',html:`<div class="report-marker" aria-hidden="true">#</div>`,iconSize:[28,28],iconAnchor:[14,14]});
     const tags=(signal.tags||[]).map(tag=>`#${tag.replace(/^#/,'')}`).join(' '); const verification=signal.photoVerification||'not supplied';
     const privacy=signal.geoprivacy==='obscured'?'Obscured/approximate source location':'Public source location';
     const demo=signal.demo?'<br><span class="report-popup-badge">Prototype signal · not a live report</span>':'';
-    const popup=`<strong>${item.name} public report</strong><br>${signal.declaredPlace||'Place not declared'}<br><small>${tags||'No hashtags'} · photo: ${verification}<br>${privacy}</small>${demo}`;
+    const popup=`<strong>${item.name} public report</strong><br>${escapeHtml(signal.declaredPlace||'Place not declared')}<br><small>${escapeHtml(tags||'No hashtags')} · photo: ${escapeHtml(verification)}<br>${privacy}</small>${demo}`;
     reportMarkers.push(L.marker([signal.lat,signal.lng],{icon,zIndexOffset:350}).addTo(map).bindPopup(popup));
   });
 }
@@ -142,15 +160,17 @@ function publicImageUrl(value){try{const url=new URL(String(value||''));return u
 
 function normalizeINatObservation(obs){
   const coordinates=obs.geojson?.coordinates; if(!Array.isArray(coordinates)||coordinates.length<2)return null;
-  if(obs.geoprivacy&&obs.geoprivacy!=='open')return null;
+  if((obs.geoprivacy&&obs.geoprivacy!=='open')||obs.obscured||obs.taxon_geoprivacy&&obs.taxon_geoprivacy!=='open')return null;
+  if(!Number.isFinite(coordinates[1])||!Number.isFinite(coordinates[0])||Math.abs(coordinates[1])>90||Math.abs(coordinates[0])>180)return null;
   const photo=obs.photos?.[0]; const imageUrl=publicImageUrl(photo?.medium_url||photo?.url);
-  return{id:`inat-${obs.id}`,species:'pawpaw',lat:Number(coordinates[1]),lng:Number(coordinates[0]),source:'iNaturalist',sourceUrl:obs.uri||`https://www.inaturalist.org/observations/${obs.id}`,imageUrl,photoAttribution:photo?.attribution||'',observedAt:obs.observed_on||obs.created_at,place:obs.place_guess||'Virginia',quality:obs.quality_grade||'community',cultivated:Boolean(obs.captive),photoBacked:Boolean(imageUrl),coordinateUncertainty:obs.positional_accuracy||null};
+  return{id:`inat-${obs.id}`,species:'pawpaw',lat:Number(coordinates[1]),lng:Number(coordinates[0]),state:'Virginia',city:obs.place_guess?.split(',')[0]||'',geoprivacy:'open',source:'iNaturalist',sourceUrl:obs.uri||`https://www.inaturalist.org/observations/${obs.id}`,imageUrl,photoAttribution:photo?.attribution||'',observedAt:obs.observed_on||obs.created_at,place:obs.place_guess||'Virginia',quality:obs.quality_grade||'community',cultivated:Boolean(obs.captive),photoBacked:Boolean(imageUrl),coordinateUncertainty:obs.positional_accuracy||null};
 }
 
 function normalizeGBIFOccurrence(record){
-  if(!Number.isFinite(record.decimalLatitude)||!Number.isFinite(record.decimalLongitude))return null;
+  if(record.informationWithheld||record.dataGeneralizations||record.geoprivacy&&record.geoprivacy!=='open')return null;
+  if(!Number.isFinite(record.decimalLatitude)||!Number.isFinite(record.decimalLongitude)||Math.abs(record.decimalLatitude)>90||Math.abs(record.decimalLongitude)>180)return null;
   const media=record.media?.[0]; const imageUrl=publicImageUrl(media?.identifier||media?.references);
-  return{id:`gbif-${record.key}`,species:'pawpaw',lat:record.decimalLatitude,lng:record.decimalLongitude,source:'GBIF',sourceUrl:`https://www.gbif.org/occurrence/${record.key}`,imageUrl,photoAttribution:media?.creator||record.recordedBy||'',observedAt:record.eventDate||record.year||'',place:[record.locality,record.county,record.stateProvince].filter(Boolean).join(', ')||'Virginia',quality:record.basisOfRecord||'occurrence record',cultivated:false,photoBacked:Boolean(imageUrl),coordinateUncertainty:record.coordinateUncertaintyInMeters||null};
+  return{id:`gbif-${record.key}`,species:'pawpaw',lat:record.decimalLatitude,lng:record.decimalLongitude,state:record.stateProvince||'Virginia',city:record.locality||'',geoprivacy:'open',source:'GBIF',sourceUrl:`https://www.gbif.org/occurrence/${record.key}`,imageUrl,photoAttribution:media?.creator||record.recordedBy||'',observedAt:record.eventDate||record.year||'',place:[record.locality,record.county,record.stateProvince].filter(Boolean).join(', ')||'Virginia',quality:record.basisOfRecord||'occurrence record',cultivated:false,photoBacked:Boolean(imageUrl),coordinateUncertainty:record.coordinateUncertaintyInMeters||null};
 }
 
 async function loadVirginiaPawpawOccurrences(){
@@ -178,12 +198,12 @@ async function loadVirginiaPawpawOccurrences(){
       liveOccurrences=(data.results||[]).map(normalizeGBIFOccurrence).filter(Boolean); status.textContent=`Pawpaw: ${data.count||liveOccurrences.length} statewide GBIF records`;
     }catch(fallbackError){liveOccurrences=[];status.textContent='Live statewide records temporarily unavailable';}
   }
-  renderOccurrenceLayer();
+  renderOccurrenceLayer();renderList();
 }
 
 function renderOccurrenceLayer(){
   if(!map)return; occurrenceMarkers.forEach(marker=>marker.remove()); occurrenceMarkers=[]; if(!occurrenceLayerEnabled)return;
-  liveOccurrences.forEach(record=>{
+  liveOccurrences.filter(inRegion).filter(record=>{const item=species.find(s=>s.id===record.species);return item&&speciesMatches(item)&&Number.isFinite(record.lat)&&Number.isFinite(record.lng)&&record.geoprivacy==='open';}).forEach(record=>{
     const kind=record.cultivated?'cultivated':record.quality==='research'?'research':'community'; const label=record.cultivated?'Cultivated/photo-backed record':record.quality==='research'?'Wild research-grade observation':'Documented occurrence';
     const icon=L.divIcon({className:'',html:`<div class="occurrence-marker ${kind}" aria-hidden="true">●</div>`,iconSize:[18,18],iconAnchor:[9,9]});
     const uncertainty=record.coordinateUncertainty?` · ±${Math.round(record.coordinateUncertainty)} m`:''; const permission=record.cultivated?'<br><strong>Cultivated does not mean publicly accessible or available to forage.</strong>':'';
@@ -198,7 +218,8 @@ function distanceMiles(a,b){const r=3958.8,toRad=value=>value*Math.PI/180;const 
 function setUserLocation(position,message='Map centered on your location'){
   currentPosition={lat:position.coords.latitude,lng:position.coords.longitude};
   if(map){if(userMarker)userMarker.remove();userMarker=L.circleMarker([currentPosition.lat,currentPosition.lng],{radius:8,color:'#fff',weight:3,fillColor:'#246dd7',fillOpacity:1}).addTo(map).bindPopup('Your approximate location');map.setView([currentPosition.lat,currentPosition.lng],14);userMarker.openPopup();}
-  $('#regionInput').value='Near me'; $('#regionEyebrow').textContent='NEAR ME'; $('#regionScope').textContent='Current location · exact coordinates stay in this browser session'; toast(message);
+  regionRequest++; currentRegion=regions[0];refreshRegion();
+  $('#regionInput').value='Near me'; $('#regionEyebrow').textContent='NEAR ME'; $('#regionScope').textContent='Within 30 miles · exact coordinates stay in this browser session'; toast(message);
 }
 
 function locateUser(){
@@ -211,7 +232,7 @@ function findNearMe(id){
   if(!navigator.geolocation){toast(`Showing known approximate ${item.name} sightings`);return;}
   navigator.geolocation.getCurrentPosition(position=>{
     setUserLocation(position,`Finding ${item.name} near you…`); renderMarkers(id);
-    const matches=[...observations.filter(obs=>obs.species===id),...liveOccurrences.filter(record=>record.species===id)]; if(!matches.length){toast(`No public ${item.name} sightings nearby yet · showing habitat guidance`);return;}
+    const matches=[...observations.filter(obs=>obs.species===id&&inRegion(obs)&&Number.isFinite(obs.lat)&&Number.isFinite(obs.lng)&&obs.geoprivacy==='open'),...liveOccurrences.filter(record=>record.species===id&&inRegion(record)&&record.geoprivacy==='open')]; if(!matches.length){toast(`No public ${item.name} sightings nearby yet · showing habitat guidance`);return;}
     const nearest=matches.map(obs=>({...obs,miles:distanceMiles(currentPosition,obs)})).sort((a,b)=>a.miles-b.miles)[0];
     if(map){const points=[[currentPosition.lat,currentPosition.lng],...matches.map(obs=>[obs.lat,obs.lng])];map.fitBounds(points,{padding:[55,55],maxZoom:13});if(markers[0])markers[0].openPopup();}
     toast(`Closest approximate ${item.name} signal: ${nearest.miles.toFixed(1)} mi`);
@@ -221,8 +242,8 @@ function findNearMe(id){
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(el.timer);el.timer=setTimeout(()=>el.classList.remove('show'),2800)}
 function openLog(){ $('#logSpecies').innerHTML=species.map(s=>`<option value="${s.id}">${s.name}</option>`).join(''); $('#logDialog').showModal(); }
 
-$$('.filter').forEach(button=>button.addEventListener('click',()=>{$$('.filter').forEach(b=>b.classList.remove('active'));button.classList.add('active');currentFilter=button.dataset.filter;renderList();renderMarkers()}));
-$('#searchInput').addEventListener('input',renderList); $$('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
+$$('.filter').forEach(button=>button.addEventListener('click',()=>{$$('.filter').forEach(b=>b.classList.remove('active'));button.classList.add('active');currentFilter=button.dataset.filter;refreshRegion()}));
+$('#searchInput').addEventListener('input',refreshRegion); $$('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
 $('#applyRegion').addEventListener('click',applyRegion); $('#regionInput').addEventListener('change',applyRegion); $('#regionInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyRegion()}});
 $('#sourceButton').addEventListener('click',()=>$('#sourceDialog').showModal());
 $('#occurrenceLayerToggle').addEventListener('change',event=>{occurrenceLayerEnabled=event.target.checked;renderOccurrenceLayer();toast(occurrenceLayerEnabled?'Documented occurrences shown':'Documented occurrences hidden')});
@@ -234,6 +255,12 @@ $('#identifyButton').addEventListener('click',()=>$('#photoInput').click()); $('
 $('#savedButton').addEventListener('click',()=>{const count=JSON.parse(localStorage.getItem('forageFinds')||'[]').length;toast(count?`${count} field ${count===1?'note':'notes'} saved on this device`:'No field notes saved yet')});
 $('#guideButton').addEventListener('click',()=>toast('Verify multiple field marks, avoid fungi without expert review, get permission, and leave enough for wildlife.'));
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('#installButton').hidden=false}); $('#installButton').addEventListener('click',async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('#installButton').hidden=true});
-if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=8'));
-window.ForageRadar={signals:sightingSignals,providers:window.FFIntel?.providerCatalog||[],addSignals(items){sightingSignals.push(...items.map(item=>window.FFIntel?window.FFIntel.normalize(item):item));renderRadarStatus();renderReportLayer();}};
+if('serviceWorker'in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js?v=9'));
+window.ForageRadar={
+  get signals(){return sightingSignals.map(window.FFIntel.normalize);},
+  providers:window.FFIntel.providerCatalog,
+  async searchRegion(q){$('#regionInput').value=q;await applyRegion();return scopedSignals().map(window.FFIntel.normalize);},
+  addSignals(items){sightingSignals.push(...items.map(window.FFIntel.normalize));refreshRegion();},
+  explainSpecies(id){return scopedSignals().filter(signal=>signal.species===id).map(window.FFIntel.explain);}
+};
 renderRegions(); renderRadarStatus(); renderList(); initMap();
