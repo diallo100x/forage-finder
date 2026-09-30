@@ -1,0 +1,10 @@
+{
+  "name":"Forage Finder",
+  "short_name":"Forage",
+  "description":"Regional foraging discovery and responsible field notes.",
+  "start_url":"./",
+  "display":"standalone",
+  "background_color":"#f7f4e8",
+  "theme_color":"#123d2a",
+  "icons":[{"src":"favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
