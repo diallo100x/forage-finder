@@ -66,16 +66,17 @@ test('live occurrence adapters reject taxon/obscured/generalized privacy paths a
 test('root, dist and docs contain identical deployable assets with no obsolete coordinate payloads',()=>{
   for(const file of ['app.js','index.html','radar-ui.js','sighting-intelligence.js','sw.js','styles.css','manifest.webmanifest','favicon.svg'])for(const folder of ['dist','docs'])assert.equal(read(file),read(`${folder}/${file}`),`${folder}/${file}`);
   assert.ok(!read('radar-ui.js').includes('lat:'));
-  assert.ok(read('index.html').includes('app.js?v=10'));assert.ok(!read('index.html').includes('radar-ui.js'));
+  assert.ok(read('index.html').includes('app.js?v=11'));assert.ok(!read('index.html').includes('radar-ui.js'));
 });
 test('service worker retires old app caches, claims clients and never returns HTML for missing JS',async()=>{
   const handlers={},deleted=[],stored=new Map();let skipped=false,claimed=false;
   const cache={addAll:async entries=>entries.forEach(x=>stored.set(x,new Response(x))),match:async request=>stored.get(typeof request==='string'?request:request.url),put:async(request,response)=>stored.set(request.url,response)};
-  const c={URL,Response,caches:{open:async()=>cache,keys:async()=>['forage-finder-v9','forage-finder-v10','other-app'],delete:async key=>deleted.push(key)},fetch:async()=>{throw Error('offline')}};
+  const c={URL,Response,caches:{open:async()=>cache,keys:async()=>['forage-finder-v10','forage-finder-v11','other-app'],delete:async key=>deleted.push(key)},fetch:async()=>{throw Error('offline')}};
   c.self={location:{origin:'https://test.example'},addEventListener:(name,fn)=>handlers[name]=fn,skipWaiting:async()=>{skipped=true},clients:{claim:async()=>{claimed=true}}};vm.createContext(c);vm.runInContext(read('sw.js'),c);
-  let task;handlers.install({waitUntil:p=>task=p});await task;assert.ok(skipped);assert.ok(stored.has('sighting-intelligence.js?v=10'));
-  handlers.activate({waitUntil:p=>task=p});await task;assert.deepEqual(deleted,['forage-finder-v9']);assert.ok(claimed);
+  let task;handlers.install({waitUntil:p=>task=p});await task;assert.ok(skipped);assert.ok(stored.has('sighting-intelligence.js?v=11'));
+  handlers.activate({waitUntil:p=>task=p});await task;assert.deepEqual(deleted,['forage-finder-v10']);assert.ok(claimed);
   let response;handlers.fetch({request:{url:'https://test.example/missing.js',method:'GET',mode:'cors'},respondWith:p=>response=p});assert.equal((await response).type,'error');
   handlers.fetch({request:{url:'https://test.example/',method:'GET',mode:'navigate'},respondWith:p=>response=p});assert.equal(await (await response).text(),'index.html');
   let handled=false;handlers.fetch({request:{url:'https://api.inaturalist.org/v1/observations',method:'GET'},respondWith:()=>handled=true});assert.equal(handled,false);
 });
+
